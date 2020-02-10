@@ -23,6 +23,7 @@ module RackOidcApi
 
             @provider = opts[:provider].gsub(/\/\z/, '')
             @audience = opts[:audience]
+            @pinned_cert = opts[:pinned_provider_ssl]
             @lock = Mutex.new
 
             reload_options
@@ -31,7 +32,7 @@ module RackOidcApi
         def reload_options
             begin
                 oidc_config_uri = URI("#{@provider}/.well-known/openid-configuration")
-                oidc_config_raw = Net::HTTP.get(oidc_config_uri)
+                oidc_config_raw = http_get(oidc_config_uri)
                 raise "Failed to retrieve OIDC Discovery Data" unless oidc_config_raw
                 oidc_config = JSON.parse(oidc_config_raw)
                 raise "Invalid or missing OIDC Discovery Data" unless oidc_config
@@ -45,7 +46,7 @@ module RackOidcApi
                 jwks_uri.host = oidc_config_uri.host
                 jwks_uri.port = oidc_config_uri.port
 
-                jwks_raw = Net::HTTP.get(jwks_uri)
+                jwks_raw = http_get(jwks_uri)
                 raise "Failed to retrieve JWKS File" unless jwks_raw
                 
                 jwks = JSON.parse(jwks_raw)
@@ -139,6 +140,34 @@ module RackOidcApi
             headers = { 'Content-Type' => 'application/json' }
 
             [401, headers, [body]]
+        end
+
+        def http_get(uri)
+            http = Net::HTTP.new(uri.host, uri.port)
+            http.use_ssl = uri.scheme != 'http'
+            http.verify_mode = OpenSSL::SSL::VERIFY_PEER # Make sure we're verifying
+            if @pinned_cert
+                http.verify_callback = lambda do | preverify_ok, cert_store |
+                    return false unless preverify_ok
+
+                    # We only want to verify once, and fail the first time the callback
+                    # is invoked (as opposed to checking only the last time it's called).
+                    # Therefore we get at the whole authorization chain.
+                    # The end certificate is at the beginning of the chain (the certificate
+                    # for the host we are talking to)
+                    end_cert = cert_store.chain[0]
+
+                    # Only perform the checks if the current cert is the end certificate
+                    # in the chain. We can compare using the DER representation
+                    # (OpenSSL::X509::Certificate objects are not comparable, and for 
+                    # a good reason). If we don't we are going to perform the verification
+                    # many times - once per certificate in the chain of trust, which is wasteful
+                    return true unless end_cert.to_der == cert_store.current_cert.to_der
+
+                    public_key = end_cert.public_key.to_pem
+                    @pinned_cert == public_key || @pinned_cert == OpenSSL::Digest::SHA256.hexdigest(public_key)
+                end                  
+            end
         end
     end
 end
