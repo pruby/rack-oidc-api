@@ -1,6 +1,6 @@
 == Rack OIDC API Middleware ==
 
-This is a middleware layer to check for a JWT token issued to a particular audience by a particular OIDC provider. It can be used to create backing APIs for Single-Page Applications that use the OIDC implicit flow. Keys are loaded from the OIDC provider's discovery endpoint and JWKS store, then validated using the ruby-jwt library.
+This is a small middleware layer to check for a JWT token issued to a particular audience by a particular OIDC provider. It can be used to create backing APIs for Single-Page Applications that use the OIDC implicit flow. Keys are loaded from the OIDC provider's discovery endpoint and JWKS store, rather than being hard-coded. The middleware can then validate bearer tokens on requests using the ruby-jwt library.
 
 To use this in a Rack application, use like this:
 
